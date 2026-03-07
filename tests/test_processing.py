@@ -119,10 +119,12 @@ class TestTransformer:
         assert dates == sorted(dates)
 
     def test_export_dat(self):
-        """Exported .dat file has correct format and content."""
+        """Exported .dat file has correct 19-column format."""
         records = [
-            {"date": date(2025, 1, 1), "ra": 80.0, "isn": 82.0, "f10_7": 150.0},
-            {"date": date(2025, 1, 2), "ra": None, "isn": None, "f10_7": None},
+            {"date": date(2024, 9, 19), "ra": 89.0, "isn": 105.0, "f10_7_adj": 162.6,
+             "sem_second_last": "1.53883e+10", "sem_last": "3.14021e+10", "mgii": "0.281377"},
+            {"date": date(2024, 9, 20), "ra": None, "isn": None, "f10_7_adj": None,
+             "sem_second_last": None, "sem_last": None, "mgii": None},
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -131,16 +133,25 @@ class TestTransformer:
             src.config.settings.dat_output_dir = tmpdir
 
             try:
-                path = Transformer().export_dat(records, run_number=76, mdi_day_start=5401)
+                path = Transformer().export_dat(records, run_number=74, mdi_day_start=5257)
                 assert os.path.exists(path)
 
                 with open(path) as f:
                     lines = f.readlines()
 
                 assert len(lines) == 2
-                assert "5401" in lines[0]
-                assert "80.0" in lines[0]
-                assert "-1.0" in lines[1]  # None becomes -1.0
+                # Line 1: MDI day 5257 (2024-09-19 is 5257 days after 2010-04-30 + 1)
+                assert "5257" in lines[0]
+                assert "9029" in lines[0]      # offset = 5257 + 3772
+                assert "2024" in lines[0]
+                assert "89." in lines[0]       # Ra
+                assert "105." in lines[0]      # ISN
+                assert "162.6" in lines[0]     # F10.7
+                assert "3.14021E+10" in lines[0]  # SEM UV
+                assert "0.281377" in lines[0]  # MgII
+                # Line 2: missing values become -1
+                assert "-1." in lines[1]
+                assert "-1.0000E+10" in lines[1]
             finally:
                 src.config.settings.dat_output_dir = original_dir
 
