@@ -6,7 +6,6 @@ import os
 import tempfile
 from datetime import date, timedelta
 
-import pytest
 
 from src.ingestion.base import SolarObservation
 from src.processing.anomaly import AnomalyDetector

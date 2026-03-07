@@ -20,7 +20,6 @@ from datetime import date, timedelta
 
 import structlog
 
-from src.config import settings
 from src.ingestion.aavso import AAVSOSource
 from src.ingestion.base import IngestionError, SolarObservation
 from src.ingestion.noaa import NOAASource
