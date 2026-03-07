@@ -113,11 +113,14 @@ solar-activity-pipeline/
 
 ## Data Sources
 
-| Source | Data | Format | Frequency |
-|--------|------|--------|-----------|
-| [AAVSO Solar Bulletin](https://www.aavso.org/solar-bulletin) | Relative Sunspot Number (Ra) | Monthly PDF | Monthly |
-| [NOAA SWPC](https://www.swpc.noaa.gov) | F10.7 radio flux, SSN | JSON API | Monthly |
-| [SILSO / WDC-SILSO](https://www.sidc.be/silso/) | International Sunspot Number | CSV | Daily |
+| Source | Data | Column | Format |
+|--------|------|--------|--------|
+| [AAVSO Solar Bulletin](https://www.aavso.org/solar-bulletin) | Relative Sunspot Number (Ra) | Col 9 | Monthly PDF |
+| [SILSO / WDC-SILSO](https://www.sidc.be/silso/) | International Sunspot Number | Col 8 | CSV (daily) |
+| [Space Weather Canada](https://www.spaceweather.gc.ca) | 10.7cm Solar Radio Flux | Col 10 | Text (multi-daily) |
+| [LASP Colorado](https://lasp.colorado.edu) | SDO/SOHO SEM UV Flux | Col 13-14 | Text (yearly) |
+| [Space Environment Tech](https://sol.spacenvironment.net) | MgII Core-to-Wing Ratio | Col 19 | Text (daily) |
+| [NOAA SWPC](https://www.swpc.noaa.gov) | F10.7, SSN (monthly avg) | Cross-validation | JSON API |
 
 ## Design Decisions
 
@@ -132,6 +135,9 @@ AAVSO Ra and SILSO ISN both measure sunspot activity but use different observer 
 
 **Why graceful degradation?**
 If one data source is unavailable (e.g., AAVSO hasn't published this month's bulletin yet), the pipeline continues with the remaining sources. Partial data is better than no data.
+
+**Why 6 data sources for a 19-column file?**
+The legacy C++ program (`DailyActivityValuesUpdater`) required the operator to manually download 5 data files, paste Ra values from a PDF, and run an interactive prompt. This pipeline automates the entire process: one command generates the identical 19-column `.dat` file, with automatic retry on network failures and graceful degradation if any source is temporarily unavailable.
 
 ## Dashboard
 
