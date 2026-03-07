@@ -18,7 +18,7 @@ from datetime import date, timedelta
 
 import structlog
 
-from src.ingestion.base import IngestionError, SolarDataSource, SolarObservation
+from src.ingestion.base import SolarDataSource, SolarObservation
 
 logger = structlog.get_logger()
 

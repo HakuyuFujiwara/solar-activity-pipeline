@@ -7,10 +7,9 @@ compatible with the DailyActivityValuesUpdater program (full 19 columns).
 
 from __future__ import annotations
 
-import math
 import os
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date
 
 import structlog
 
