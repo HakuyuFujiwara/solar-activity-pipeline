@@ -24,6 +24,9 @@ from src.ingestion.aavso import AAVSOSource
 from src.ingestion.base import IngestionError, SolarObservation
 from src.ingestion.noaa import NOAASource
 from src.ingestion.silso import SILSOSource
+from src.ingestion.spaceweather_ca import SpaceWeatherCASource
+from src.ingestion.lasp import LASPSource
+from src.ingestion.mgii import MgIISource
 from src.processing.anomaly import AnomalyDetector
 from src.processing.transformer import Transformer
 from src.processing.validator import CrossValidator
@@ -54,7 +57,14 @@ class Pipeline:
     def __init__(self, db: Database | None = None, dry_run: bool = False) -> None:
         self.db = db or Database()
         self.dry_run = dry_run
-        self.sources = [AAVSOSource(), NOAASource(), SILSOSource()]
+        self.sources = [
+            AAVSOSource(),
+            NOAASource(),
+            SILSOSource(),
+            SpaceWeatherCASource(),
+            LASPSource(),
+            MgIISource(),
+        ]
         self.transformer = Transformer()
         self.validator = CrossValidator()
         self.anomaly_detector = AnomalyDetector()

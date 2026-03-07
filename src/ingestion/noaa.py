@@ -81,7 +81,7 @@ class NOAASource(SolarDataSource):
                 time_tag = record.get("time-tag", "")
                 obs_date = datetime.strptime(time_tag, "%Y-%m").date().replace(day=1)
 
-                if obs_date < start.replace(day=1) or obs_date > end:
+                if obs_date < start or obs_date > end:
                     continue
 
                 f10_7 = self._safe_float(record.get("f10.7"))
