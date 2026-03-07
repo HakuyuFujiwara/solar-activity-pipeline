@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+# Lab output directory on Discovery HPC
+LAB_OUTPUT_DIR = "/project2/erhodes_44/rcf-04/astro10/data/mdi/lnu/comparison"
 
 @dataclass
 class RunInfo:

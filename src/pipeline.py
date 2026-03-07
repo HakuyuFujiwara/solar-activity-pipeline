@@ -27,7 +27,7 @@ from src.ingestion.silso import SILSOSource
 from src.ingestion.spaceweather_ca import SpaceWeatherCASource
 from src.ingestion.lasp import LASPSource
 from src.ingestion.mgii import MgIISource
-from src.run_registry import get_run
+from src.run_registry import get_run, LAB_OUTPUT_DIR
 from src.processing.anomaly import AnomalyDetector
 from src.processing.transformer import Transformer
 from src.processing.validator import CrossValidator
@@ -241,6 +241,12 @@ def main(argv: list[str] | None = None) -> None:
             "run_number": args.run,
             "mdi_day_start": 0,  # not used, .dat col 1 is computed from dates
         }
+        # On HPC, output directly to lab directory
+        import os
+        if os.path.isdir(LAB_OUTPUT_DIR):
+            import src.config
+            src.config.settings.dat_output_dir = LAB_OUTPUT_DIR
+            logger.info("output_dir_set", path=LAB_OUTPUT_DIR)
         logger.info(
             "run_loaded",
             run=args.run,
