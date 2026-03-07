@@ -27,6 +27,7 @@ from src.ingestion.silso import SILSOSource
 from src.ingestion.spaceweather_ca import SpaceWeatherCASource
 from src.ingestion.lasp import LASPSource
 from src.ingestion.mgii import MgIISource
+from src.run_registry import get_run
 from src.processing.anomaly import AnomalyDetector
 from src.processing.transformer import Transformer
 from src.processing.validator import CrossValidator
@@ -192,6 +193,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Number of days back from today (default: 30)",
     )
     parser.add_argument(
+        "--run", type=int,
+        help="HMI pipeline run number (auto-fills dates and MDI day)",
+    )
+    parser.add_argument(
         "--init-db", action="store_true",
         help="Initialize database tables and exit",
     )
@@ -224,25 +229,42 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("database_initialized")
         return
 
-    # Determine date range
-    if args.start_date and args.end_date:
+    # Determine date range and export settings
+    export_kwargs = {}
+
+    if args.run:
+        # Auto-fill everything from run registry
+        run_info = get_run(args.run)
+        start, end = run_info.start_date, run_info.end_date
+        args.export_dat = True
+        export_kwargs = {
+            "run_number": args.run,
+            "mdi_day_start": 0,  # not used, .dat col 1 is computed from dates
+        }
+        logger.info(
+            "run_loaded",
+            run=args.run,
+            start=str(start),
+            end=str(end),
+            days=run_info.num_days,
+        )
+    elif args.start_date and args.end_date:
         start, end = args.start_date, args.end_date
     else:
         end = date.today()
         start = end - timedelta(days=args.days_back)
 
-    pipeline = Pipeline(db=db, dry_run=args.dry_run)
-
-    export_kwargs = {}
-    if args.export_dat:
-        if not args.run_number or not args.mdi_day_start:
-            logger.error("export_dat requires --run-number and --mdi-day-start")
+    if args.export_dat and not export_kwargs:
+        if args.run_number and args.mdi_day_start:
+            export_kwargs = {
+                "run_number": args.run_number,
+                "mdi_day_start": args.mdi_day_start,
+            }
+        else:
+            logger.error("export_dat requires --run or (--run-number and --mdi-day-start)")
             sys.exit(1)
-        export_kwargs = {
-            "run_number": args.run_number,
-            "mdi_day_start": args.mdi_day_start,
-        }
 
+    pipeline = Pipeline(db=db, dry_run=args.dry_run)
     pipeline.run(start, end, export_dat=args.export_dat, **export_kwargs)
 
 
