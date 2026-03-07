@@ -1,28 +1,38 @@
 """HMI Pipeline Run Registry.
 
-Maps run numbers to their date ranges and JSOC day numbers.
-This allows the pipeline to be invoked with just a run number:
-    python -m src.pipeline --run 76
+Automatically computes date ranges and JSOC day numbers for any run.
+Each HMI run is exactly 72 days (24 three-day sets), and runs are
+consecutive with no gaps.
 
 Two different "day numbers" exist in this system:
 
 1. JSOC MDI Day: epoch ~1993-01-01, used for Stanford JSOC queries
-   (e.g., hmi.V_sht_pow[11584d]). This is what the lab calls "day number".
+   (e.g., hmi.V_sht_pow[11584d]).
 
 2. DAT file Day (column 1): epoch 2010-04-30, computed automatically
-   from the date. This is what appears in the .dat output file.
+   from the date by the transformer.
 
-The registry stores JSOC day numbers. The .dat column 1 values are
-calculated by the transformer from dates, no manual input needed.
+This module only needs one anchor point to compute any run's dates.
+Leap years and month lengths are handled automatically by Python's
+datetime library.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
+
+# Anchor point: one known run from which all others are computed
+_ANCHOR_RUN = 74
+_ANCHOR_START = date(2024, 9, 19)
+_ANCHOR_JSOC_DAY = 11584
+
+# Every run is exactly 72 days
+DAYS_PER_RUN = 72
 
 # Lab output directory on Discovery HPC
 LAB_OUTPUT_DIR = "/project2/erhodes_44/rcf-04/astro10/data/mdi/lnu/comparison"
+
 
 @dataclass
 class RunInfo:
@@ -31,7 +41,7 @@ class RunInfo:
     run_number: int
     start_date: date
     end_date: date
-    first_jsoc_day: int  # JSOC MDI day number of the first 3-day set
+    first_jsoc_day: int
 
     @property
     def num_days(self) -> int:
@@ -39,50 +49,49 @@ class RunInfo:
         return (self.end_date - self.start_date).days + 1
 
 
-# Registry of all known runs
-# first_jsoc_day is the JSOC MDI day number used in Stanford queries
-RUNS: dict[int, RunInfo] = {
-    74: RunInfo(
-        run_number=74,
-        start_date=date(2024, 9, 19),
-        end_date=date(2024, 11, 29),
-        first_jsoc_day=11584,
-    ),
-    75: RunInfo(
-        run_number=75,
-        start_date=date(2024, 11, 30),
-        end_date=date(2025, 2, 9),
-        first_jsoc_day=11656,
-    ),
-    76: RunInfo(
-        run_number=76,
-        start_date=date(2025, 2, 10),
-        end_date=date(2025, 4, 22),
-        first_jsoc_day=11728,
-    ),
-}
-
-
 def get_run(run_number: int) -> RunInfo:
-    """Look up a run by number.
+    """Compute dates and JSOC day for any run number.
+
+    Uses the anchor point (Run 74 = 2024-09-19, JSOC 11584) and the fact
+    that every run is exactly 72 days to calculate any run's metadata.
+    Leap years and month boundaries are handled automatically by
+    Python's datetime.
 
     Args:
-        run_number: The HMI pipeline run number.
+        run_number: The HMI pipeline run number (must be >= 1).
 
     Returns:
-        RunInfo for that run.
+        RunInfo with computed dates and JSOC day.
 
     Raises:
-        ValueError: If the run number is not in the registry.
+        ValueError: If run number is less than 1.
     """
-    if run_number not in RUNS:
-        available = sorted(RUNS.keys())
-        raise ValueError(
-            f"Run {run_number} not found. Available runs: {available}"
-        )
-    return RUNS[run_number]
+    if run_number < 1:
+        raise ValueError(f"Run number must be >= 1, got {run_number}")
+
+    offset_runs = run_number - _ANCHOR_RUN
+    offset_days = offset_runs * DAYS_PER_RUN
+
+    start_date = _ANCHOR_START + timedelta(days=offset_days)
+    end_date = start_date + timedelta(days=DAYS_PER_RUN - 1)
+    first_jsoc_day = _ANCHOR_JSOC_DAY + offset_days
+
+    return RunInfo(
+        run_number=run_number,
+        start_date=start_date,
+        end_date=end_date,
+        first_jsoc_day=first_jsoc_day,
+    )
 
 
-def list_runs() -> list[RunInfo]:
-    """List all registered runs, sorted by run number."""
-    return [RUNS[k] for k in sorted(RUNS.keys())]
+def list_runs(start: int = 1, end: int = 80) -> list[RunInfo]:
+    """List a range of runs with computed metadata.
+
+    Args:
+        start: First run number.
+        end: Last run number (inclusive).
+
+    Returns:
+        List of RunInfo objects.
+    """
+    return [get_run(n) for n in range(start, end + 1)]
