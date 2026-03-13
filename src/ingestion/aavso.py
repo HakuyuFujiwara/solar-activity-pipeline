@@ -99,7 +99,24 @@ class AAVSOSource(SolarDataSource):
         Returns:
             List of daily Ra observations for that month.
         """
-        url = f"{self.BASE_URL}/AAVSO_SB_{year}_{month:02d}.pdf"
+        # Try standard filename first, then common typos
+        urls_to_try = [
+            f"{self.BASE_URL}/AAVSO_SB_{year}_{month:02d}.pdf",
+            f"{self.BASE_URL}/AAVO_SB_{year}_{month:02d}.pdf",
+            f"{self.BASE_URL}/AAVSO_SB_{year}_{month}.pdf",
+        ]
+
+        response = None
+        for url in urls_to_try:
+            try:
+                response = self._get(url)
+                break
+            except Exception:
+                continue
+
+        if response is None:
+            raise IngestionError(f"Could not fetch AAVSO bulletin for {year}-{month:02d}")
+        
         response = self._get(url)
 
         pdf_bytes = io.BytesIO(response.content)
