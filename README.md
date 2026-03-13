@@ -41,7 +41,6 @@ flowchart LR
 ```
 
 ## Quick Start
-```bash
 # Clone and setup
 git clone https://github.com/HakuyuFujiwara/solar-activity-pipeline.git
 cd solar-activity-pipeline
@@ -54,10 +53,9 @@ python -m src.pipeline --days-back 30
 
 # Launch dashboard
 python -m streamlit run src/dashboard/app.py
-```
 
 ## Usage Examples
-```bash
+
 # Fetch specific date range
 python -m src.pipeline --start-date 2025-03-01 --end-date 2025-03-31
 
@@ -70,7 +68,6 @@ python -m src.pipeline --start-date 2025-03-01 --end-date 2025-03-31 \
 
 # Initialize database only
 python -m src.pipeline --init-db
-```
 
 ## Tech Stack
 
@@ -149,13 +146,12 @@ The Streamlit dashboard provides interactive visualization of ingested data:
 - Raw data explorer and anomaly table
 
 ## Testing
-```bash
+
 # Run all tests
 pytest tests/ -v
 
 # Run with coverage
 pytest tests/ --cov=src --cov-report=term-missing
-```
 
 29 tests covering ingestion (HTTP mocking with respx), cross-validation logic, anomaly detection edge cases, data transformation, and .dat export format.
 
