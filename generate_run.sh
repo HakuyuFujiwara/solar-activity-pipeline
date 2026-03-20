@@ -34,7 +34,7 @@ export OPENBLAS_NUM_THREADS=1
 source "$SCRIPT_DIR/.venv/bin/activate"
 
 # Run pipeline
-python -m src.pipeline --run "$RUN"
+python -m src.pipeline --run "$RUN" ${@:2}
 
 echo ""
 echo "Done! Output file is in:"
