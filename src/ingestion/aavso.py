@@ -99,11 +99,19 @@ class AAVSOSource(SolarDataSource):
         Returns:
             List of daily Ra observations for that month.
         """
-        # Try standard filename first, then common typos
+        # Try standard filename first, then known AAVSO naming quirks:
+        # - _0 suffix (CMS versioning)
+        # - Previous month with _0 (e.g., Dec 2025 filed as 2025_11_0.pdf)
+        # - AAVO typo (Oct 2025)
+        prev_month = month - 1 if month > 1 else 12
+        prev_year = year if month > 1 else year - 1
+
         urls_to_try = [
             f"{self.BASE_URL}/AAVSO_SB_{year}_{month:02d}.pdf",
+            f"{self.BASE_URL}/AAVSO_SB_{year}_{month:02d}_0.pdf",
+            f"{self.BASE_URL}/AAVSO_SB_{prev_year}_{prev_month:02d}_0.pdf",
             f"{self.BASE_URL}/AAVO_SB_{year}_{month:02d}.pdf",
-            f"{self.BASE_URL}/AAVSO_SB_{year}_{month}.pdf",
+            f"{self.BASE_URL}/AAVO_SB_{year}_{month:02d}_0.pdf",
         ]
 
         response = None
@@ -187,8 +195,14 @@ class AAVSOSource(SolarDataSource):
                             if 1 <= day <= 31:
                                 ra_values[day] = ra
 
+        # Verify we got a reasonable number of days (28-31)
         if not ra_values:
             raise IngestionError("Could not find Ra table in PDF")
+
+        max_day = max(ra_values.keys())
+        if max_day < 28 or max_day > 31:
+            logger.warning("aavso_unexpected_day_count", days=len(ra_values), max_day=max_day)
+
 
         logger.info("aavso_table_extracted", days=len(ra_values))
         return ra_values
