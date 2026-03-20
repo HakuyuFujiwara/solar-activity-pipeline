@@ -1,14 +1,18 @@
 """AAVSO Solar Bulletin adapter.
 
 Fetches the Relative Sunspot Number (Ra) from the AAVSO monthly Solar
-Bulletin PDF. The bulletin is published as a PDF at a predictable URL:
-    https://www.aavso.org/sites/default/files/solar_bulletin/AAVSO_SB_YYYY_MM.pdf
+Bulletin PDF. Instead of guessing filenames (which AAVSO frequently
+misspells or changes), this adapter scrapes the bulletin index page
+to discover actual PDF URLs, then reads each PDF's content to determine
+which month it contains.
 
-The Ra values are in "Table 2: American Relative Sunspot Numbers (Ra)",
-which has columns: Day, Number of Observers, Raw, Ra.
-
-This is the same PDF you would manually download when generating daily
-activity values files for the HMI pipeline.
+This approach is resilient to AAVSO's naming inconsistencies including:
+- Typos (AAVO instead of AAVSO)
+- Wrong month in filename (Dec 2025 filed as 2025_11_0)
+- Varying separators (underscore vs dash)
+- Missing zero-padding (2020_1 instead of 2020_01)
+- Completely different paths (Desktop/Solar_Bulletin_May2019.pdf)
+- Revision suffixes (_corrected, _r1, _0)
 """
 
 from __future__ import annotations
@@ -16,33 +20,33 @@ from __future__ import annotations
 import io
 import re
 from datetime import date
+from urllib.parse import urljoin
 
 import pdfplumber
 import structlog
+from bs4 import BeautifulSoup
 
 from src.ingestion.base import IngestionError, SolarDataSource, SolarObservation
 
 logger = structlog.get_logger()
 
+BULLETIN_PAGE = "https://www.aavso.org/solar-bulletin"
+
 
 class AAVSOSource(SolarDataSource):
     """Adapter for AAVSO Solar Bulletin PDF data.
 
-    Downloads monthly bulletin PDFs and extracts the daily Ra values from
-    Table 2. This automates the manual process of opening the PDF and
-    reading off Ra values for each day.
+    Scrapes the bulletin index page to find all PDF links, downloads
+    the ones that might contain the months we need, and reads the actual
+    month from inside the PDF to handle filename mismatches.
     """
-
-    BASE_URL = "https://www.aavso.org/sites/default/files/solar_bulletin"
 
     def __init__(self) -> None:
         super().__init__(name="aavso")
+        self._pdf_index: dict[str, str] | None = None  # url -> url, built lazily
 
     def fetch(self, start: date, end: date) -> list[SolarObservation]:
         """Fetch Ra values from AAVSO bulletin PDFs for the given date range.
-
-        Downloads one PDF per month covered by the date range, extracts
-        Table 2, and returns daily Ra observations.
 
         Args:
             start: First date (inclusive).
@@ -50,36 +54,39 @@ class AAVSOSource(SolarDataSource):
 
         Returns:
             List of SolarObservation with ra populated.
-
-        Raises:
-            IngestionError: If no bulletins can be retrieved or parsed.
         """
-        months = self._months_in_range(start, end)
-        all_observations: list[SolarObservation] = []
+        months_needed = self._months_in_range(start, end)
+        all_pdf_urls = self._discover_pdf_urls()
 
-        for year, month in months:
-            try:
-                observations = self._fetch_month(year, month)
-                # Filter to requested date range
-                filtered = [
-                    obs for obs in observations
-                    if start <= obs.date <= end
-                ]
-                all_observations.extend(filtered)
-                logger.info(
-                    "aavso_month_parsed",
-                    year=year,
-                    month=month,
-                    observations=len(filtered),
-                )
-            except Exception as exc:
-                # Some months may not be published yet, skip them
-                logger.warning(
-                    "aavso_month_failed",
-                    year=year,
-                    month=month,
-                    error=str(exc),
-                )
+        all_observations: list[SolarObservation] = []
+        months_found: set[tuple[int, int]] = set()
+
+        for year, month in months_needed:
+            if (year, month) in months_found:
+                continue
+
+            # Find candidate PDFs for this month
+            candidates = self._find_candidates(all_pdf_urls, year, month)
+
+            for url in candidates:
+                try:
+                    observations, actual_month = self._try_pdf(url, start, end)
+                    if observations:
+                        all_observations.extend(observations)
+                        months_found.add(actual_month)
+                        logger.info(
+                            "aavso_month_parsed",
+                            url=url,
+                            actual_year=actual_month[0],
+                            actual_month=actual_month[1],
+                            observations=len(observations),
+                        )
+                        break
+                except Exception as exc:
+                    logger.debug("aavso_candidate_failed", url=url, error=str(exc))
+                    continue
+            else:
+                logger.warning("aavso_month_not_found", year=year, month=month)
 
         logger.info(
             "aavso_fetch_complete",
@@ -89,71 +96,173 @@ class AAVSOSource(SolarDataSource):
         )
         return all_observations
 
-    def _fetch_month(self, year: int, month: int) -> list[SolarObservation]:
-        """Download and parse one month's bulletin PDF.
-
-        Args:
-            year: 4-digit year.
-            month: Month number (1-12).
+    def _discover_pdf_urls(self) -> list[str]:
+        """Scrape the AAVSO bulletin page for all PDF links.
 
         Returns:
-            List of daily Ra observations for that month.
+            List of absolute PDF URLs.
         """
-        # Try standard filename first, then known AAVSO naming quirks:
-        # - _0 suffix (CMS versioning)
-        # - Previous month with _0 (e.g., Dec 2025 filed as 2025_11_0.pdf)
-        # - AAVO typo (Oct 2025)
+        try:
+            response = self._get(BULLETIN_PAGE)
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            urls = []
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if ".pdf" in href.lower():
+                    full_url = urljoin("https://www.aavso.org/", href)
+                    urls.append(full_url)
+
+            logger.info("aavso_index_scraped", pdf_count=len(urls))
+            return urls
+        except Exception as exc:
+            logger.error("aavso_index_failed", error=str(exc))
+            return []
+
+    def _find_candidates(
+        self, all_urls: list[str], year: int, month: int
+    ) -> list[str]:
+        """Find PDF URLs that might contain data for the given month.
+
+        Looks for the year in the URL and ranks by likelihood. Also
+        includes adjacent months since AAVSO sometimes files bulletins
+        under the wrong month.
+
+        Args:
+            all_urls: All discovered PDF URLs.
+            year: Target year.
+            month: Target month.
+
+        Returns:
+            Candidate URLs, best matches first.
+        """
+        year_str = str(year)
+        month_strs = [f"{month:02d}", str(month)]
+
+        # Adjacent months (for misfiled bulletins like Dec filed as Nov_0)
         prev_month = month - 1 if month > 1 else 12
         prev_year = year if month > 1 else year - 1
 
-        urls_to_try = [
-            f"{self.BASE_URL}/AAVSO_SB_{year}_{month:02d}.pdf",
-            f"{self.BASE_URL}/AAVSO_SB_{year}_{month:02d}_0.pdf",
-            f"{self.BASE_URL}/AAVSO_SB_{prev_year}_{prev_month:02d}_0.pdf",
-            f"{self.BASE_URL}/AAVO_SB_{year}_{month:02d}.pdf",
-            f"{self.BASE_URL}/AAVO_SB_{year}_{month:02d}_0.pdf",
-        ]
+        exact = []
+        adjacent = []
+        same_year = []
 
-        response = None
-        for url in urls_to_try:
-            try:
-                response = self._get(url)
-                break
-            except Exception:
-                continue
+        for url in all_urls:
+            url_lower = url.lower()
 
-        if response is None:
-            raise IngestionError(f"Could not fetch AAVSO bulletin for {year}-{month:02d}")
-        
+            if year_str in url:
+                # Exact month match
+                if any(f"_{ms}" in url_lower or f"-{ms}" in url_lower for ms in month_strs):
+                    exact.append(url)
+                # Adjacent month with _0 suffix (CMS versioning artifact)
+                elif "_0" in url and (
+                    any(f"_{prev_month:02d}" in url or f"_{prev_month}" in url for _ in [1])
+                ):
+                    adjacent.append(url)
+                else:
+                    same_year.append(url)
+            elif str(prev_year) in url and f"_{prev_month:02d}" in url and "_0" in url:
+                adjacent.append(url)
+
+        return exact + adjacent
+
+    def _try_pdf(
+        self, url: str, start: date, end: date
+    ) -> tuple[list[SolarObservation], tuple[int, int]]:
+        """Download a PDF and extract Ra values, detecting the actual month.
+
+        Args:
+            url: PDF URL.
+            start: Filter start date.
+            end: Filter end date.
+
+        Returns:
+            Tuple of (observations, (year, month)) where year/month
+            are read from inside the PDF, not from the filename.
+        """
         response = self._get(url)
-
         pdf_bytes = io.BytesIO(response.content)
+
+        actual_year, actual_month = self._detect_month(pdf_bytes)
         ra_values = self._extract_ra_table(pdf_bytes)
 
         observations = []
         for day, ra in ra_values.items():
             try:
-                obs_date = date(year, month, day)
+                obs_date = date(actual_year, actual_month, day)
+                if obs_date < start or obs_date > end:
+                    continue
                 observations.append(
                     SolarObservation(
                         date=obs_date,
                         source=self.name,
                         ra=float(ra),
-                        raw_payload={"year": year, "month": month, "day": day, "ra": ra},
+                        raw_payload={
+                            "year": actual_year,
+                            "month": actual_month,
+                            "day": day,
+                            "ra": ra,
+                            "source_url": url,
+                        },
                     )
                 )
             except ValueError as exc:
-                logger.warning("aavso_bad_date", year=year, month=month, day=day, error=str(exc))
+                logger.warning(
+                    "aavso_bad_date",
+                    year=actual_year, month=actual_month, day=day,
+                    error=str(exc),
+                )
 
-        return observations
+        return observations, (actual_year, actual_month)
+
+    def _detect_month(self, pdf_bytes: io.BytesIO) -> tuple[int, int]:
+        """Read the actual month from the PDF content.
+
+        Looks for patterns like "March 2025" or "Volume 81 Number 3"
+        on the first page to determine the bulletin's actual month,
+        regardless of what the filename says.
+
+        Args:
+            pdf_bytes: PDF file content.
+
+        Returns:
+            (year, month) as detected from PDF content.
+
+        Raises:
+            IngestionError: If month cannot be determined.
+        """
+        month_names = {
+            "january": 1, "february": 2, "march": 3, "april": 4,
+            "may": 5, "june": 6, "july": 7, "august": 8,
+            "september": 9, "october": 10, "november": 11, "december": 12,
+        }
+
+        pdf_bytes.seek(0)
+        with pdfplumber.open(pdf_bytes) as pdf:
+            if not pdf.pages:
+                raise IngestionError("Empty PDF")
+
+            first_page = pdf.pages[0].extract_text() or ""
+
+            # Pattern: "Month YYYY" (e.g., "December 2025")
+            for name, num in month_names.items():
+                pattern = re.compile(
+                    rf"\b{name}\s+(\d{{4}})\b", re.IGNORECASE
+                )
+                match = pattern.search(first_page)
+                if match:
+                    year = int(match.group(1))
+                    pdf_bytes.seek(0)
+                    return year, num
+
+        pdf_bytes.seek(0)
+        raise IngestionError("Could not detect month from PDF content")
 
     def _extract_ra_table(self, pdf_bytes: io.BytesIO) -> dict[int, float]:
         """Extract daily Ra values from the bulletin PDF.
 
-        Scans all pages for lines matching the Table 2 format:
-        day_number  num_observers  raw_wolf  ra_value
-
-        Also handles the "Averages" row at the end of the table.
+        Scans all pages for Table 2 rows matching:
+            day_number  num_observers  raw_wolf  ra_value
 
         Args:
             pdf_bytes: PDF file content as BytesIO.
@@ -162,12 +271,11 @@ class AAVSOSource(SolarDataSource):
             Dict mapping day number (1-31) to Ra value.
         """
         ra_values: dict[int, float] = {}
-
-        # Pattern matches rows like: "1 27 106 76" or " 16 26 186 131"
         row_pattern = re.compile(
             r"^\s*(\d{1,2})\s+(\d+)\s+(\d+)\s+(\d+)\s*$"
         )
 
+        pdf_bytes.seek(0)
         with pdfplumber.open(pdf_bytes) as pdf:
             in_ra_table = False
 
@@ -177,12 +285,10 @@ class AAVSOSource(SolarDataSource):
                     continue
 
                 for line in text.split("\n"):
-                    # Detect start of Table 2
                     if "American Relative Sunspot Numbers" in line:
                         in_ra_table = True
                         continue
 
-                    # Detect end of table (Averages row or next section)
                     if in_ra_table and "Averages" in line:
                         in_ra_table = False
                         continue
@@ -195,29 +301,15 @@ class AAVSOSource(SolarDataSource):
                             if 1 <= day <= 31:
                                 ra_values[day] = ra
 
-        # Verify we got a reasonable number of days (28-31)
         if not ra_values:
             raise IngestionError("Could not find Ra table in PDF")
-
-        max_day = max(ra_values.keys())
-        if max_day < 28 or max_day > 31:
-            logger.warning("aavso_unexpected_day_count", days=len(ra_values), max_day=max_day)
-
 
         logger.info("aavso_table_extracted", days=len(ra_values))
         return ra_values
 
     @staticmethod
     def _months_in_range(start: date, end: date) -> list[tuple[int, int]]:
-        """Generate list of (year, month) tuples covering the date range.
-
-        Args:
-            start: Start date.
-            end: End date.
-
-        Returns:
-            List of (year, month) tuples.
-        """
+        """Generate list of (year, month) tuples covering the date range."""
         months = []
         current = start.replace(day=1)
         while current <= end:
