@@ -74,6 +74,9 @@ class AAVSOSource(SolarDataSource):
                     if observations:
                         all_observations.extend(observations)
                         months_found.add(actual_month)
+                        # Also mark target month as attempted if different
+                        if actual_month != (year, month):
+                            months_found.add((year, month))
                         logger.info(
                             "aavso_month_parsed",
                             url=url,
@@ -137,7 +140,7 @@ class AAVSOSource(SolarDataSource):
             Candidate URLs, best matches first.
         """
         year_str = str(year)
-        month_strs = [f"{month:02d}", str(month)]
+        month_strs = [f"{month:02d}"]
 
         # Adjacent months (for misfiled bulletins like Dec filed as Nov_0)
         prev_month = month - 1 if month > 1 else 12
