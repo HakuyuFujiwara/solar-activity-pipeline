@@ -20,6 +20,7 @@ from datetime import date, timedelta
 
 import structlog
 
+from src.config import settings
 from src.ingestion.aavso import AAVSOSource
 from src.ingestion.base import IngestionError, SolarObservation
 from src.ingestion.noaa import NOAASource
@@ -120,6 +121,9 @@ class Pipeline:
             if export_dat and unified:
                 dat_path = self.transformer.export_dat(unified, **export_kwargs)
                 logger.info("dat_exported", path=dat_path)
+                # Save raw source files if requested
+            if getattr(self, '_save_sources', False):
+                self._save_source_files(start, end, settings.dat_output_dir)
 
             # Mark success
             if run_id is not None:
@@ -184,6 +188,66 @@ class Pipeline:
                 )
 
         return all_observations
+    
+    def _save_source_files(self, start: date, end: date, output_dir: str) -> None:
+        """Download and save raw source data files for archival.
+
+        Saves the same files that the legacy workflow required users to
+        download manually. Useful when researchers need the raw data
+        for their own analysis (e.g., plotting Figure 1a from SILSO data).
+
+        Args:
+            start: Start date of the run.
+            end: End date of the run.
+            output_dir: Directory to save files in.
+        """
+        import os
+        from datetime import datetime
+
+        sources_dir = os.path.join(output_dir, "source_files")
+        os.makedirs(sources_dir, exist_ok=True)
+
+        datestamp = datetime.now().strftime("%m%d%y")
+
+        downloads = [
+            (
+                "https://www.sidc.be/SILSO/INFO/sndtotcsv.php",
+                f"SN_d_tot_V2.0_{datestamp}.txt",
+                "SILSO International Sunspot Number",
+            ),
+            (
+                "https://www.spaceweather.gc.ca/solar_flux_data/daily_flux_values/fluxtable.txt",
+                f"fluxtable_{datestamp}.txt",
+                "Space Weather Canada 10.7cm flux",
+            ),
+            (
+                "https://sol.spacenvironment.net/spacewx/data/mg2_atmos.dat.txt",
+                f"mg2_atmos_{datestamp}.txt",
+                "MgII Core-to-Wing ratio",
+            ),
+        ]
+
+        # Add LASP files for each year in range
+        for year in range(start.year, end.year + 1):
+            yy = f"{year % 100:02d}"
+            downloads.append((
+                f"https://lasp.colorado.edu/eve/data_access/eve_data/lasp_soho_sem_data/long/daily_avg/{yy}_v4.day",
+                f"{yy}_v4.day",
+                f"LASP SEM UV {year}",
+            ))
+
+        import httpx
+
+        for url, filename, description in downloads:
+            filepath = os.path.join(sources_dir, filename)
+            try:
+                response = httpx.get(url, follow_redirects=True, timeout=30)
+                response.raise_for_status()
+                with open(filepath, "wb") as f:
+                    f.write(response.content)
+                logger.info("source_file_saved", file=filename, description=description)
+            except Exception as exc:
+                logger.warning("source_file_failed", file=filename, error=str(exc))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -227,8 +291,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--mdi-day-start", type=int,
         help="Starting MDI day number (for .dat export)",
     )
+    parser.add_argument(
+        "--save-sources", action="store_true",
+        help="Save raw source data files alongside the .dat output",
+    )
     return parser.parse_args(argv)
-
+    
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
@@ -282,6 +350,9 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     pipeline = Pipeline(db=db, dry_run=args.dry_run)
+    if args.save_sources:
+        pipeline._save_sources = True
+
     pipeline.run(start, end, export_dat=args.export_dat, **export_kwargs)
 
 
