@@ -26,6 +26,10 @@ cd "$SCRIPT_DIR"
 echo "Checking for updates..."
 git pull --ff-only 2>/dev/null && echo "Updated." || echo "Skipped update (offline or conflict)."
 
+# Limit OpenBLAS threads (login nodes have restricted process limits)
+export OPENBLAS_NUM_THREADS=1
+
+
 # Activate virtual environment
 source "$SCRIPT_DIR/.venv/bin/activate"
 
