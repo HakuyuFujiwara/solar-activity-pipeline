@@ -305,7 +305,20 @@ class AAVSOSource(SolarDataSource):
                                 ra_values[day] = ra
 
         if not ra_values:
-            raise IngestionError("Could not find Ra table in PDF")
+            raise IngestionError(
+                "Could not find Ra table in PDF. "
+                "AAVSO may have changed their table format. "
+                "Look for 'American Relative Sunspot Numbers' in the PDF "
+                "and check if the table structure has changed."
+            )
+
+        # Sanity check: a valid month should have 28-31 days
+        if len(ra_values) < 28:
+            logger.warning(
+                "aavso_incomplete_table",
+                days_found=len(ra_values),
+                msg="Expected 28-31 days, got fewer. Table format may have changed.",
+            )
 
         logger.info("aavso_table_extracted", days=len(ra_values))
         return ra_values

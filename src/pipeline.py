@@ -130,6 +130,17 @@ class Pipeline:
                     anomalies=anom_count,
                 )
 
+            for record in unified:
+                d = record["date"]
+                sem_last = record.get("sem_last")
+                if sem_last:
+                    try:
+                        val = float(sem_last)
+                        if val > 8e10:
+                            logger.warning("suspicious_sem_value", date=str(d), value=sem_last)
+                    except ValueError:
+                        pass
+
             logger.info(
                 "pipeline_complete",
                 observations=len(all_observations),

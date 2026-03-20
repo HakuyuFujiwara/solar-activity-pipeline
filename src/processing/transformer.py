@@ -139,85 +139,99 @@ class Transformer:
         Returns:
             Path to the written .dat file.
         """
-        os.makedirs(settings.dat_output_dir, exist_ok=True)
+        try:
+            os.makedirs(settings.dat_output_dir, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Cannot create output directory {settings.dat_output_dir}: {exc}. "
+                f"Check disk space and permissions."
+            ) from exc
+
         filename = f"dailyactivityvalueshmirun{run_number}.dat"
         filepath = os.path.join(settings.dat_output_dir, filename)
 
-        with open(filepath, "w") as f:
-            for i, record in enumerate(records):
-                obs_date = record["date"]
+        try:
+            with open(filepath, "w") as f:
+                for i, record in enumerate(records):
+                    obs_date = record["date"]
 
-                # Columns 1-2: MDI Day and Offset
-                days_since = (obs_date - _BASELINE).days
-                mdi_day = days_since + 1
-                offset = mdi_day + 3772
+                    # Columns 1-2: MDI Day and Offset
+                    days_since = (obs_date - _BASELINE).days
+                    mdi_day = days_since + 1
+                    offset = mdi_day + 3772
 
-                # Columns 3-5: Year, Month, Day
-                year = obs_date.year
-                month = f"{obs_date.month:02d}"
-                day = f"{obs_date.day:02d}"
+                    # Columns 3-5: Year, Month, Day
+                    year = obs_date.year
+                    month = f"{obs_date.month:02d}"
+                    day = f"{obs_date.day:02d}"
 
-                # Column 6: Fractional year
-                frac_year = self._fractional_year(obs_date)
+                    # Column 6: Fractional year
+                    frac_year = self._fractional_year(obs_date)
 
-                # Column 7: Placeholder
-                col7 = "-1."
+                    # Column 7: Placeholder
+                    col7 = "-1."
 
-                # Column 8: ISN
-                isn = record.get("isn")
-                col8 = f"{int(isn):3d}" if isn is not None else " -1"
+                    # Column 8: ISN
+                    isn = record.get("isn")
+                    col8 = f"{int(isn):3d}" if isn is not None else " -1"
 
-                # Column 9: Ra
-                ra = record.get("ra")
-                col9 = f"{int(ra):3d}" if ra is not None else " -1"
+                    # Column 9: Ra
+                    ra = record.get("ra")
+                    col9 = f"{int(ra):3d}" if ra is not None else " -1"
 
-                # Column 10: F10.7 adjusted flux
-                f10_7 = record.get("f10_7_adj")
-                col10 = f"{f10_7}" if f10_7 is not None else "-1"
+                    # Column 10: F10.7 adjusted flux
+                    f10_7 = record.get("f10_7_adj")
+                    col10 = f"{f10_7}" if f10_7 is not None else "-1"
 
-                # Columns 11-12: Placeholders
-                col11 = "-1.0000000"
-                col12 = "-1.0000000"
+                    # Columns 11-12: Placeholders
+                    col11 = "-1.0000000"
+                    col12 = "-1.0000000"
 
-                # Columns 13-14: SEM UV (swapped in output, matching C++ behavior)
-                sem_last = record.get("sem_last")
-                sem_second_last = record.get("sem_second_last")
-                col13 = sem_last.upper() if sem_last is not None else "-1.0000E+10"
-                col14 = sem_second_last.upper() if sem_second_last is not None else "-1.0000E+10"
+                    # Columns 13-14: SEM UV (swapped in output, matching C++ behavior)
+                    sem_last = record.get("sem_last")
+                    sem_second_last = record.get("sem_second_last")
+                    col13 = sem_last.upper() if sem_last is not None else "-1.0000E+10"
+                    col14 = sem_second_last.upper() if sem_second_last is not None else "-1.0000E+10"
 
-                # Columns 15-18: Placeholders
-                col15 = "-1.0000"
-                col16 = "-1.0000"
-                col17 = "-1.000"
-                col18 = "-1.000"
+                    # Columns 15-18: Placeholders
+                    col15 = "-1.0000"
+                    col16 = "-1.0000"
+                    col17 = "-1.000"
+                    col18 = "-1.000"
 
-                # Column 19: MgII
-                mgii = record.get("mgii")
-                col19 = mgii if mgii is not None else "-1"
+                    # Column 19: MgII
+                    mgii = record.get("mgii")
+                    col19 = mgii if mgii is not None else "-1"
 
-                # Format the line matching C++ spacing
-                line = (
-                    f" {mdi_day}"
-                    f" {offset}"
-                    f" {year}"
-                    f" {month}"
-                    f" {day}"
-                    f" {frac_year}"
-                    f"  {col7}"
-                    f" {col8:>3s}."
-                    f" {col9:>3s}."
-                    f" {col10}"
-                    f" {col11}"
-                    f" {col12}"
-                    f" {col13}"
-                    f" {col14}"
-                    f"   {col15}"
-                    f"   {col16}"
-                    f" {col17}"
-                    f" {col18}"
-                    f" {col19}"
-                )
-                f.write(line + "\n")
+                    # Format the line matching C++ spacing
+                    line = (
+                        f" {mdi_day}"
+                        f" {offset}"
+                        f" {year}"
+                        f" {month}"
+                        f" {day}"
+                        f" {frac_year}"
+                        f"  {col7}"
+                        f" {col8:>3s}."
+                        f" {col9:>3s}."
+                        f" {col10}"
+                        f" {col11}"
+                        f" {col12}"
+                        f" {col13}"
+                        f" {col14}"
+                        f"   {col15}"
+                        f"   {col16}"
+                        f" {col17}"
+                        f" {col18}"
+                        f" {col19}"
+                    )
+                    f.write(line + "\n")
+        except OSError as exc:
+                raise RuntimeError(
+                    f"Failed to write {filepath}: {exc}. "
+                    f"Check disk space and permissions on {settings.dat_output_dir}"
+                ) from exc
+
 
         logger.info("dat_export_complete", filepath=filepath, rows=len(records))
         return filepath
