@@ -79,6 +79,9 @@ python -m src.pipeline --run 76
 # Dry run (fetch and validate, don't write to database)
 python -m src.pipeline --run 76 --dry-run
 
+# Generate .dat + save raw source files (SILSO, flux table, etc.)
+./generate_run.sh 80 --save-sources
+
 # Custom date range
 python -m src.pipeline --start-date 2025-01-01 --end-date 2025-03-31
 
@@ -94,7 +97,7 @@ python -m streamlit run src/dashboard/app.py
 
 | Source | Data | .dat Column | Format |
 |--------|------|-------------|--------|
-| [AAVSO Solar Bulletin](https://www.aavso.org/solar-bulletin) | Relative Sunspot Number (Ra) | 9 | Monthly PDF (auto-parsed) |
+| [AAVSO Solar Bulletin](https://www.aavso.org/solar-bulletin) | Relative Sunspot Number (Ra) | 9 | Monthly PDF (auto-discovered from index page, month verified from content) |
 | [SILSO / WDC-SILSO](https://www.sidc.be/silso/) | International Sunspot Number | 8 | CSV (daily) |
 | [Space Weather Canada](https://www.spaceweather.gc.ca) | 10.7cm Solar Radio Flux | 10 | Text (selects 20:00 UTC reading) |
 | [LASP Colorado](https://lasp.colorado.edu) | SDO/SOHO SEM UV Flux | 13-14 | Text (yearly files) |
