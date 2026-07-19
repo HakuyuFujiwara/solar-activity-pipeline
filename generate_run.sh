@@ -22,9 +22,24 @@ RUN=$1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Auto-update from GitHub (skip if offline or if it fails)
-echo "Checking for updates..."
-git pull --ff-only 2>/dev/null && echo "Updated." || echo "Skipped update (offline or conflict)."
+# Optional auto-update from GitHub, off by default. Pass --auto-update to enable.
+# Under a shared group install, automatic pulls would let one member's run change
+# everyone's working copy, so updates are gated. Maintainers update with a
+# manual `git pull`; --auto-update restores unattended self-updating.
+AUTO_UPDATE=false
+_fwd_args=()
+for _a in "${@:2}"; do
+    if [ "$_a" = "--auto-update" ]; then
+        AUTO_UPDATE=true
+    else
+        _fwd_args+=("$_a")
+    fi
+done
+
+if [ "$AUTO_UPDATE" = "true" ]; then
+    echo "Checking for updates..."
+    git pull --ff-only 2>/dev/null && echo "Updated." || echo "Skipped update (offline or conflict)."
+fi
 
 # Limit OpenBLAS threads (login nodes have restricted process limits)
 export OPENBLAS_NUM_THREADS=1
@@ -34,7 +49,7 @@ export OPENBLAS_NUM_THREADS=1
 source "$SCRIPT_DIR/.venv/bin/activate"
 
 # Run pipeline
-python -m src.pipeline --run "$RUN" ${@:2}
+python -m src.pipeline --run "$RUN" "${_fwd_args[@]}"
 
 echo ""
 echo "Done! Output file is in:"
